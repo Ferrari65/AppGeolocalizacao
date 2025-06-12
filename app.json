@@ -4,15 +4,11 @@
     "slug": "geolocal4dsm",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
-    "assetBundlePatterns": [
-      "**/*"
+    "platforms": [
+      "ios",
+      "android",
+      "web"
     ],
     "ios": {
       "supportsTablet": true,
@@ -25,10 +21,6 @@
       }
     },
     "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#FFFFFF"
-      },
       "config": {
         "googleMaps": {
           "apiKey": "SUA_CHAVE_API_AQUI"
@@ -40,13 +32,13 @@
       ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "bundler": "metro"
     },
     "plugins": [
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Permitir que o app use sua localização."
+          "locationAlwaysAndWhenInUseUsageDescription": "Permitir que o app use sua localização."
         }
       ]
     ]

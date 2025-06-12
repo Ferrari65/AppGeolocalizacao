@@ -1,3 +1,4 @@
+// src/components/AddMarkerModal.js - VERSÃO FINAL LIMPA
 import React, { useState, useEffect } from 'react';
 import {
   Modal,
@@ -15,6 +16,9 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import * as Location from 'expo-location';
 
 import { useTheme } from '../context/ThemeContext';
+
+// Sua Google Maps API Key
+const GOOGLE_MAPS_API_KEY = "AIzaSyBKeFCWFIvggGr3nkT-h98cnL2Sj8N98EA";
 
 const markerTypes = [
   { id: 'home', name: 'Casa', icon: 'home', color: '#34C759' },
@@ -36,23 +40,14 @@ export default function AddMarkerModal({ visible, onClose, onAddMarker, currentL
     endereco: '',
     tipo: 'other',
     descricao: '',
-    latitude: null,
-    longitude: null,
   });
   const [useCurrentLocation, setUseCurrentLocation] = useState(true);
 
   useEffect(() => {
     if (visible) {
       resetForm();
-      if (currentLocation && useCurrentLocation) {
-        setFormData(prev => ({
-          ...prev,
-          latitude: currentLocation.latitude,
-          longitude: currentLocation.longitude,
-        }));
-      }
     }
-  }, [visible, currentLocation, useCurrentLocation]);
+  }, [visible]);
 
   const resetForm = () => {
     setFormData({
@@ -60,10 +55,59 @@ export default function AddMarkerModal({ visible, onClose, onAddMarker, currentL
       endereco: '',
       tipo: 'other',
       descricao: '',
-      latitude: null,
-      longitude: null,
     });
     setUseCurrentLocation(true);
+  };
+
+  const handleLocationOptionChange = (useCurrent) => {
+    setUseCurrentLocation(useCurrent);
+    
+    if (useCurrent) {
+      setFormData(prev => ({ ...prev, endereco: '' }));
+    }
+  };
+
+  const geocodeWithGoogleAPI = async (address) => {
+    try {
+      const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${GOOGLE_MAPS_API_KEY}`;
+      
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      if (data.status === 'OK' && data.results.length > 0) {
+        const location = data.results[0].geometry.location;
+        return {
+          latitude: location.lat,
+          longitude: location.lng,
+          formatted_address: data.results[0].formatted_address,
+        };
+      } else {
+        if (data.status === 'REQUEST_DENIED') {
+          throw new Error('Chave de API inválida ou sem permissão para Geocoding API');
+        }
+        throw new Error(`Erro da API: ${data.status}`);
+      }
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  const geocodeWithExpo = async (address) => {
+    try {
+      const results = await Location.geocodeAsync(address);
+      
+      if (results.length > 0) {
+        return {
+          latitude: results[0].latitude,
+          longitude: results[0].longitude,
+          formatted_address: address,
+        };
+      } else {
+        throw new Error('Nenhum resultado encontrado pelo Expo');
+      }
+    } catch (error) {
+      throw error;
+    }
   };
 
   const handleSubmit = async () => {
@@ -75,41 +119,60 @@ export default function AddMarkerModal({ visible, onClose, onAddMarker, currentL
     setLoading(true);
 
     try {
-      let finalCoords = { latitude: formData.latitude, longitude: formData.longitude };
+      let finalCoords = null;
+      let finalAddress = '';
 
-      // Se não estiver usando localização atual e tiver um endereço, geocodificar
-      if (!useCurrentLocation && formData.endereco.trim()) {
-        const geoResults = await Location.geocodeAsync(formData.endereco);
-        if (geoResults.length === 0) {
-          Alert.alert('Erro', 'Endereço não encontrado');
+      if (useCurrentLocation) {
+        if (!currentLocation) {
+          Alert.alert('Erro', 'Localização atual não disponível');
           setLoading(false);
           return;
         }
-        finalCoords = {
-          latitude: geoResults[0].latitude,
-          longitude: geoResults[0].longitude,
-        };
-      }
-
-      // Se usar localização atual mas não tiver coordenadas
-      if (useCurrentLocation && !currentLocation) {
-        Alert.alert('Erro', 'Localização atual não disponível');
-        setLoading(false);
-        return;
-      }
-
-      if (useCurrentLocation) {
+        
         finalCoords = {
           latitude: currentLocation.latitude,
           longitude: currentLocation.longitude,
         };
+        finalAddress = 'Localização Atual';
+
+      } else {
+        if (!formData.endereco.trim()) {
+          Alert.alert('Erro', 'Por favor, digite um endereço para buscar.');
+          setLoading(false);
+          return;
+        }
+
+        let geocodeResult = null;
+
+        try {
+          geocodeResult = await geocodeWithGoogleAPI(formData.endereco.trim());
+        } catch (googleError) {
+          try {
+            geocodeResult = await geocodeWithExpo(formData.endereco.trim());
+          } catch (expoError) {
+            Alert.alert(
+              'Erro na busca de endereço',
+              `Não foi possível encontrar o endereço.\n\nTente:\n• "São Paulo, SP"\n• "Av. Paulista, São Paulo"\n• "Cristo Redentor, Rio de Janeiro"`
+            );
+            setLoading(false);
+            return;
+          }
+        }
+
+        if (geocodeResult) {
+          finalCoords = {
+            latitude: geocodeResult.latitude,
+            longitude: geocodeResult.longitude,
+          };
+          finalAddress = geocodeResult.formatted_address || formData.endereco.trim();
+        }
       }
 
       const selectedType = markerTypes.find(type => type.id === formData.tipo);
 
       const markerData = {
         nome: formData.nome.trim(),
-        endereco: useCurrentLocation ? 'Localização Atual' : formData.endereco.trim(),
+        endereco: finalAddress,
         descricao: formData.descricao.trim(),
         tipo: formData.tipo,
         icon: selectedType.icon,
@@ -119,11 +182,53 @@ export default function AddMarkerModal({ visible, onClose, onAddMarker, currentL
       };
 
       await onAddMarker(markerData);
-      Alert.alert('Sucesso', 'Marcador adicionado com sucesso!');
+      Alert.alert('Sucesso! 🎉', 'Marcador adicionado com sucesso!');
       
     } catch (error) {
-      console.error('Erro ao adicionar marcador:', error);
-      Alert.alert('Erro', 'Ocorreu um erro ao adicionar o marcador');
+      Alert.alert('Erro', `Erro inesperado: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const testAddress = async () => {
+    if (!formData.endereco.trim()) {
+      Alert.alert('Digite um endereço primeiro');
+      return;
+    }
+
+    setLoading(true);
+    
+    try {
+      try {
+        const googleResult = await geocodeWithGoogleAPI(formData.endereco.trim());
+        
+        Alert.alert(
+          'Endereço encontrado! ✅',
+          `Lat: ${googleResult.latitude.toFixed(6)}\nLng: ${googleResult.longitude.toFixed(6)}\n\nEndereço formatado:\n${googleResult.formatted_address}`
+        );
+        setLoading(false);
+        return;
+        
+      } catch (googleError) {
+        try {
+          const expoResult = await geocodeWithExpo(formData.endereco.trim());
+          
+          Alert.alert(
+            'Endereço encontrado! ✅',
+            `Lat: ${expoResult.latitude.toFixed(6)}\nLng: ${expoResult.longitude.toFixed(6)}`
+          );
+          
+        } catch (expoError) {
+          Alert.alert(
+            'Endereço não encontrado ❌',
+            'Tente um formato mais específico:\n• "São Paulo, SP"\n• "Av. Paulista, 1000, São Paulo"\n• "Cristo Redentor, Rio de Janeiro"'
+          );
+        }
+      }
+      
+    } catch (error) {
+      Alert.alert('Erro no teste', error.message);
     } finally {
       setLoading(false);
     }
@@ -220,16 +325,17 @@ export default function AddMarkerModal({ visible, onClose, onAddMarker, currentL
                   Localização
                 </Text>
                 
+                {/* Botões de Toggle */}
                 <View style={styles.locationOptions}>
                   <TouchableOpacity
                     style={[
                       styles.locationOption,
                       {
                         backgroundColor: useCurrentLocation ? theme.colors.primary : theme.colors.background,
-                        borderColor: theme.colors.border,
+                        borderColor: useCurrentLocation ? theme.colors.primary : theme.colors.border,
                       }
                     ]}
-                    onPress={() => setUseCurrentLocation(true)}
+                    onPress={() => handleLocationOptionChange(true)}
                   >
                     <Icon
                       name="locate"
@@ -242,7 +348,7 @@ export default function AddMarkerModal({ visible, onClose, onAddMarker, currentL
                         { color: useCurrentLocation ? 'white' : theme.colors.primary }
                       ]}
                     >
-                      Usar Localização Atual
+                      Localização Atual
                     </Text>
                   </TouchableOpacity>
 
@@ -251,10 +357,10 @@ export default function AddMarkerModal({ visible, onClose, onAddMarker, currentL
                       styles.locationOption,
                       {
                         backgroundColor: !useCurrentLocation ? theme.colors.primary : theme.colors.background,
-                        borderColor: theme.colors.border,
+                        borderColor: !useCurrentLocation ? theme.colors.primary : theme.colors.border,
                       }
                     ]}
-                    onPress={() => setUseCurrentLocation(false)}
+                    onPress={() => handleLocationOptionChange(false)}
                   >
                     <Icon
                       name="search"
@@ -272,22 +378,57 @@ export default function AddMarkerModal({ visible, onClose, onAddMarker, currentL
                   </TouchableOpacity>
                 </View>
 
+                {/* Campo de Endereço */}
                 {!useCurrentLocation && (
-                  <TextInput
-                    style={[
-                      styles.input,
-                      {
-                        backgroundColor: theme.colors.background,
-                        borderColor: theme.colors.border,
-                        color: theme.colors.text,
-                      }
-                    ]}
-                    placeholder="Digite o endereço completo..."
-                    placeholderTextColor={theme.colors.textSecondary}
-                    value={formData.endereco}
-                    onChangeText={(text) => setFormData(prev => ({ ...prev, endereco: text }))}
-                    multiline
-                  />
+                  <View style={styles.addressContainer}>
+                    <Text style={[styles.addressLabel, { color: theme.colors.text }]}>
+                      Digite o endereço:
+                    </Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        {
+                          backgroundColor: theme.colors.background,
+                          borderColor: theme.colors.border,
+                          color: theme.colors.text,
+                        }
+                      ]}
+                      placeholder="Ex: Av. Paulista, 1000, São Paulo, SP"
+                      placeholderTextColor={theme.colors.textSecondary}
+                      value={formData.endereco}
+                      onChangeText={(text) => setFormData(prev => ({ ...prev, endereco: text }))}
+                      multiline
+                      numberOfLines={2}
+                    />
+                    
+                    {/* Botão de Teste */}
+                    <TouchableOpacity
+                      style={[
+                        styles.testButton, 
+                        { 
+                          borderColor: theme.colors.primary,
+                          backgroundColor: theme.colors.background,
+                        }
+                      ]}
+                      onPress={testAddress}
+                      disabled={loading || !formData.endereco.trim()}
+                    >
+                      <Icon name="search" size={16} color={theme.colors.primary} />
+                      <Text style={[styles.testButtonText, { color: theme.colors.primary }]}>
+                        Testar Endereço
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {/* Info sobre localização atual */}
+                {useCurrentLocation && currentLocation && (
+                  <View style={[styles.currentLocationInfo, { backgroundColor: theme.colors.background }]}>
+                    <Icon name="checkmark-circle" size={16} color={theme.colors.success} />
+                    <Text style={[styles.currentLocationText, { color: theme.colors.success }]}>
+                      Localização atual: {currentLocation.latitude.toFixed(4)}, {currentLocation.longitude.toFixed(4)}
+                    </Text>
+                  </View>
                 )}
               </View>
 
@@ -426,7 +567,8 @@ const styles = {
   },
   locationOptions: {
     flexDirection: 'row',
-    marginBottom: 12,
+    marginBottom: 16,
+    gap: 8,
   },
   locationOption: {
     flex: 1,
@@ -435,13 +577,47 @@ const styles = {
     justifyContent: 'center',
     paddingVertical: 12,
     borderRadius: 12,
-    borderWidth: 1,
-    marginHorizontal: 4,
+    borderWidth: 2,
   },
   locationOptionText: {
     marginLeft: 8,
     fontSize: 14,
     fontWeight: '600',
+  },
+  addressContainer: {
+    marginTop: 8,
+  },
+  addressLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  testButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderRadius: 8,
+    marginTop: 12,
+  },
+  testButtonText: {
+    marginLeft: 8,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  currentLocationInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  currentLocationText: {
+    marginLeft: 8,
+    fontSize: 12,
+    fontWeight: '500',
   },
   footer: {
     flexDirection: 'row',
